@@ -12,6 +12,11 @@ on:
       JIRA_EMAIL:
         required: true
         description: "Jira user email"
+    inputs:
+      jira_ticket:
+        description: "Jira ticket number (optional, will be extracted from PR if not provided)"
+        required: false
+        type: string
 
 jobs:
   analyze-and-update:
@@ -23,17 +28,37 @@ jobs:
         with:
           fetch-depth: 2  # Need previous commit for diff
 
-      - name: Check for .jira file
+      - name: Extract Jira ticket
         id: check_jira
+        env:
+          INPUT_TICKET: ${{ inputs.jira_ticket }}
         run: |
-          if [ -f .jira ]; then
+          TICKET=""
+
+          # First priority: explicitly provided ticket via input
+          if [ -n "$INPUT_TICKET" ]; then
+            TICKET="$INPUT_TICKET"
+            echo "✅ Using provided Jira ticket: $TICKET"
+
+          # Second priority: extract from PR description (if this is a PR event)
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_BODY="${{ github.event.pull_request.body }}"
+            TICKET=$(echo "$PR_BODY" | grep -oE '\*\*Jira:\*\*\s*([A-Z]+-[0-9]+)' | grep -oE '[A-Z]+-[0-9]+' | head -1 || echo "")
+            if [ -n "$TICKET" ]; then
+              echo "✅ Found Jira ticket in PR description: $TICKET"
+            fi
+
+          # Third priority: check for .jira file (backward compatibility)
+          elif [ -f .jira ]; then
             TICKET=$(cat .jira | grep -v '^#' | grep -v '^$' | head -1 | xargs)
-            echo "ticket=$TICKET" >> $GITHUB_OUTPUT
-            echo "✅ Found Jira ticket: $TICKET"
-          else
-            echo "⏭️  No .jira file found, skipping Jira integration"
-            echo "ticket=" >> $GITHUB_OUTPUT
+            echo "✅ Found Jira ticket in .jira file: $TICKET"
           fi
+
+          if [ -z "$TICKET" ]; then
+            echo "⏭️  No Jira ticket found, skipping Jira integration"
+          fi
+
+          echo "ticket=$TICKET" >> $GITHUB_OUTPUT
 
       - name: Get commit diff
         if: steps.check_jira.outputs.ticket != ''

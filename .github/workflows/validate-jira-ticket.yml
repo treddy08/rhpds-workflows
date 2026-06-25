@@ -1,0 +1,30 @@
+name: Validate Jira Ticket
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for Jira ticket in PR description
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Extract Jira ticket from PR body
+          TICKET=$(echo "$PR_BODY" | grep -oE '\*\*Jira:\*\*\s*([A-Z]+-[0-9]+)' | grep -oE '[A-Z]+-[0-9]+' || echo "")
+
+          if [ -z "$TICKET" ]; then
+            echo "❌ Error: No Jira ticket found in PR description"
+            echo ""
+            echo "Please add a Jira ticket number in the format:"
+            echo "**Jira:** RHCLOUD-1234"
+            echo ""
+            echo "Current PR body:"
+            echo "$PR_BODY"
+            exit 1
+          fi
+
+          echo "✅ Found Jira ticket: $TICKET"
+          echo "JIRA_TICKET=$TICKET" >> $GITHUB_ENV

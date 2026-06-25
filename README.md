@@ -6,27 +6,33 @@ This repository contains reusable GitHub Actions workflows for the RHPDS organiz
 
 ### 🤖 Jira AI Analysis
 
-Automatically analyzes Git commits using Claude AI and posts summaries to linked Jira tickets.
+Automatically analyzes pull request changes using Claude AI and posts summaries to linked Jira tickets.
 
 **Features:**
-- Reads Jira ticket from `.jira` file in your repo
-- Analyzes commit diffs with Claude AI
+- Validates Jira ticket number in PR description
+- Analyzes PR diffs with Claude AI
 - Posts AI-generated summaries to Jira tickets
-- Runs on every push
+- Enforces Jira ticket requirement for all PRs
 
 ---
 
-## Usage
+## Setup Instructions
 
-### 1. Add `.jira` file to your repository
+### 1. Copy PR template to your repository
 
-Create a `.jira` file in your repository root containing the Jira ticket number:
+The PR template is automatically detected by GitHub when placed in:
+`.github/pull_request_template.md`
 
+**Option A: Copy from this repo**
+```bash
+curl -o .github/pull_request_template.md \
+  https://raw.githubusercontent.com/rhpds/rhpds-workflows/main/.github/pull_request_template.md
 ```
-RHCLOUD-1234
-```
 
-### 2. Create workflow file in your repository
+**Option B: Create manually**
+See the template in this repo's `.github/pull_request_template.md`
+
+### 2. Add workflow files to your repository
 
 Create `.github/workflows/jira-update.yml`:
 
@@ -34,15 +40,15 @@ Create `.github/workflows/jira-update.yml`:
 name: Update Jira with AI Analysis
 
 on:
-  push:
-    branches:
-      - main
-      - master
-      - develop
-      # Add any other branches you want to track
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
+  validate-ticket:
+    uses: rhpds/rhpds-workflows/.github/workflows/validate-jira-ticket.yml@main
+
   jira-analysis:
+    needs: validate-ticket
     uses: rhpds/rhpds-workflows/.github/workflows/jira-ai-update.yml@main
     secrets:
       MAAS_API_KEY: ${{ secrets.PH_MAAS_API_TOKEN }}
@@ -50,13 +56,19 @@ jobs:
       JIRA_EMAIL: ${{ secrets.PH_JIRA_API_USER }}
 ```
 
-### 3. Commit and push
+### 3. Create a PR
 
-That's it! On your next commit, the workflow will:
-1. Check for `.jira` file
-2. Get the commit diff
-3. Analyze it with Claude AI
-4. Post a summary to your Jira ticket
+When you create a PR, the template will automatically appear. Fill in the Jira ticket:
+
+```markdown
+## Jira Ticket
+**Jira:** RHCLOUD-1234
+```
+
+The workflow will:
+1. **Validate** that a Jira ticket is present (fails if missing)
+2. **Analyze** the PR changes with Claude AI
+3. **Post** a summary to the Jira ticket
 
 ---
 
@@ -72,7 +84,7 @@ The following secrets are configured at the organization level and available to 
 
 ## Example Jira Comment
 
-When a commit is pushed, Jira receives a comment like:
+When a PR is created/updated, Jira receives a comment like:
 
 > 🤖 **AI Analysis of commit `abc123`**
 > 
@@ -89,36 +101,65 @@ When a commit is pushed, Jira receives a comment like:
 
 ---
 
-## Skipping Jira Integration
+## How It Works
 
-If a repository doesn't have a `.jira` file, the workflow automatically skips Jira integration (no errors).
+### PR Template
+- Placed in `.github/pull_request_template.md` in each repo
+- GitHub automatically applies it to all PRs in that repo
+- Each repo can have its own template or use the standard one
+
+### Validation Workflow
+- Runs on PR open/edit/sync
+- Checks for `**Jira:** TICKET-123` format in PR description
+- Fails the check if missing (can be made required for merge)
+
+### AI Analysis Workflow
+- Runs after validation passes
+- Extracts the Jira ticket from PR description
+- Gets PR diff and analyzes with Claude
+- Posts summary to the Jira ticket
 
 ---
 
-## Updating the Jira Ticket
+## Applying to Specific Repos
 
-When you switch to working on a different Jira ticket, simply update the `.jira` file:
+The PR template only applies to repos where you add the `.github/pull_request_template.md` file.
 
-```bash
-echo "RHCLOUD-5678" > .jira
-git add .jira
-git commit -m "Switch to new Jira ticket"
-git push
-```
+**To enable for a repo:**
+1. Add `.github/pull_request_template.md`
+2. Add `.github/workflows/jira-update.yml`
 
-All future commits will post to the new ticket.
+**To skip a repo:**
+- Simply don't add these files
+
+**To customize for a repo:**
+- Modify the template file in that repo
+- Each repo can have different templates
+
+---
+
+## Backward Compatibility
+
+The AI analysis workflow still supports `.jira` files for direct push events. Priority order:
+1. Explicitly provided ticket via workflow input
+2. PR description `**Jira:** TICKET-123`
+3. `.jira` file in repo (legacy)
 
 ---
 
 ## Troubleshooting
 
-**Workflow not running?**
-- Check that `.github/workflows/jira-update.yml` exists in your repo
-- Verify the workflow references `@main` branch of this repo
+**PR template not showing?**
+- Ensure file is named exactly `.github/pull_request_template.md`
+- File must be committed and pushed to the default branch
+
+**Validation failing?**
+- Check PR description has `**Jira:** TICKET-123` format
+- Ticket must match pattern: `[A-Z]+-[0-9]+`
 
 **Jira not updating?**
-- Verify `.jira` file contains a valid ticket number
-- Check the Actions tab in your repo for error logs
+- Verify Jira ticket exists and is accessible
+- Check the Actions tab for error logs
 - Ensure organization secrets are configured
 
 **AI analysis failing?**
@@ -129,7 +170,7 @@ All future commits will post to the new ticket.
 
 ## Contributing
 
-To modify the reusable workflow:
-1. Make changes to `.github/workflows/jira-ai-update.yml`
+To modify the reusable workflows:
+1. Make changes to `.github/workflows/*.yml`
 2. Test with a demo repository
 3. Push to `main` branch - all repos using it will automatically get the update
